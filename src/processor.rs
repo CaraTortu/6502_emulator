@@ -18,7 +18,7 @@ use crate::operators::OPCodes;
 //          - 2nd: Interrupt disable
 //          - 1st: Zero
 //          - 0th: Carry
-struct Processor {
+pub struct Processor {
     stack: [u8; 0xffff],
     a: u8,
     x: u8,
@@ -36,8 +36,8 @@ impl Processor {
             a: 0,
             x: 0,
             y: 0,
-            pc: 0xfce2, // Hardcode program counter to 0xfec2
-            sp: 0x01fd, // Hardcode Stack pointer to 0x01fd
+            pc: 0x0000, // Hardcode program counter to 0x0000
+            sp: 0x0000, // Hardcode Stack pointer to 0x0200
             sr: 0b11111111,
         }
     }
@@ -63,23 +63,57 @@ impl Processor {
             .count();
     }
 
-    // OPCODES handling
-    pub fn execute(&mut self, instructions: Vec<OPCodes>, cycle_limit: u64) {
-        let mut cycles: u64 = 0;
-        
-        while cycles < cycle_limit {
-           for instruction in &instructions {
-              self.handle_opcode(instruction, &mut cycles); 
-           } 
+    pub fn write_program(&mut self, program: &Vec<u8>) {
+        self.sp = program.len() as u16 + 1;
+        for (address, byte) in program.iter().enumerate() {
+            self.write_byte(address as u16, byte.to_owned());
         }
     }
 
-    pub fn handle_opcode(&mut self, instruction: &OPCodes, cycles: &mut u64) {
-        use OPCodes::*;
+    // OPCODES handling
+    pub fn execute(&mut self, cycle_limit: u64) {
+        let mut cycles: u64 = 0;
 
-        match instruction {
-            _ => ()
+        while cycles < cycle_limit {
+            let instruction = self.read_byte(self.pc).unwrap();
+            let difference: u16;
+
+            let parameter: Option<isize> = match OPCodes::param_count(instruction) {
+                0 => {
+                    difference = 1;
+                    None
+                }
+                1 => {
+                    difference = 2;
+                    Some(self.read_byte(self.pc + 1).unwrap() as isize)
+                }
+                _ => {
+                    difference = 3;
+                    Some(self.read_word(self.pc + 1).unwrap() as isize)
+                }
+            };
+
+            // Increase the program counter by the amount of bytes read
+            self.pc += difference;
+
+            // Get the OPcode related to the hex code
+            let opcode = OPCodes::instruction_to_opcode(instruction, parameter);
+
+            // Increase the amount of cycles we have gone through
+            cycles += self.handle_opcode(&opcode);
+
+            // Return of the program means we finished. Break out of loop.
+            if opcode == OPCodes::RTS {
+                break;
+            }
         }
+    }
+
+    pub fn handle_opcode(&mut self, instruction: &OPCodes) -> u64 {
+        //use OPCodes::*;
+
+        println!("{:?}", instruction);
+        return 1;
     }
 }
 

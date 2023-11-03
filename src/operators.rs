@@ -1,7 +1,7 @@
 // OPCODES for our processor
 // Allow non rust approved naming for ease of reading
 #[allow(non_snake_case, non_camel_case_types)]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum OPCodes {
     ORA_XIND(u8),
     ORA_YIND(u8),
@@ -157,7 +157,7 @@ pub enum OPCodes {
 }
 
 impl OPCodes {
-     pub fn instruction_to_opcode(opcode: u8, value: Option<isize>) -> OPCodes {
+    pub fn instruction_to_opcode(opcode: u8, value: Option<isize>) -> OPCodes {
         use self::OPCodes::*;
 
         match opcode {
@@ -345,6 +345,44 @@ impl OPCodes {
             0xfe => INC_XABS(value.unwrap() as u16),
 
             _ => panic!("ERROR: Instruction not supported: {}", opcode),
+        }
+    }
+
+    // Returns the amount of bytes that it will read after the instruction
+    pub fn param_count(opcode: u8) -> usize {
+        match opcode {
+            // Zero length parameters
+            0x00 | 0x08 | 0x0a | 0x18 | 0x28 | 0x2a | 0x38 | 0x40 | 0x48 | 0x4a | 0x58 | 0x60
+            | 0x68 | 0x6a | 0x78 | 0x88 | 0x8a | 0x98 | 0x9a | 0xa8 | 0xaa | 0xb8 | 0xba | 0xc8
+            | 0xca | 0xd8 | 0xe8 | 0xea | 0xf8 => 0,
+
+            // Byte parameters
+            0x01..=0x06
+            | 0x09
+            | 0x10..=0x16
+            | 0x21..=0x26
+            | 0x29
+            | 0x30..=0x36
+            | 0x41..=0x46
+            | 0x49
+            | 0x50..=0x56
+            | 0x61..=0x66
+            | 0x69
+            | 0x70..=0x76
+            | 0x81..=0x86
+            | 0x90..=0x96
+            | 0xa0..=0xa6
+            | 0xa9
+            | 0xb0..=0xb6
+            | 0xc0..=0xc6
+            | 0xc9
+            | 0xd0..=0xd6
+            | 0xe0..=0xe6
+            | 0xe9
+            | 0xf0..=0xf6 => 1,
+
+            // Word parameters
+            _ => 2,
         }
     }
 }
