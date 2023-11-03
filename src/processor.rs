@@ -1,3 +1,5 @@
+use crate::operators::OPCodes;
+
 // Processor based on the 6502
 // Components:
 //   - Stack (0x0000 -> 0xffff)
@@ -16,7 +18,6 @@
 //          - 2nd: Interrupt disable
 //          - 1st: Zero
 //          - 0th: Carry
-#[allow(dead_code)]
 struct Processor {
     stack: [u8; 0xffff],
     a: u8,
@@ -26,7 +27,7 @@ struct Processor {
     sp: u16,
     sr: u8,
 }
-#[allow(dead_code)]
+
 impl Processor {
     // Create a new 6502 Processor
     pub fn new() -> Self {
@@ -61,10 +62,30 @@ impl Processor {
             .map(|(i, d)| self.write_byte(address + i as u16, *d))
             .count();
     }
+
+    // OPCODES handling
+    pub fn execute(&mut self, instructions: Vec<OPCodes>, cycle_limit: u64) {
+        let mut cycles: u64 = 0;
+        
+        while cycles < cycle_limit {
+           for instruction in &instructions {
+              self.handle_opcode(instruction, &mut cycles); 
+           } 
+        }
+    }
+
+    pub fn handle_opcode(&mut self, instruction: &OPCodes, cycles: &mut u64) {
+        use OPCodes::*;
+
+        match instruction {
+            _ => ()
+        }
+    }
 }
 
 mod test {
-    use crate::processor::Processor;
+    #[allow(unused)]
+    use super::*;
 
     #[test]
     pub fn write_and_write_byte() {
