@@ -1,5 +1,3 @@
-use std::io::Error;
-
 // Processor based on the 6502
 // Components:
 //   - Stack (0x0000 -> 0xffff)
@@ -18,6 +16,7 @@ use std::io::Error;
 //          - 2nd: Interrupt disable
 //          - 1st: Zero
 //          - 0th: Carry
+#[allow(dead_code)]
 struct Processor {
     stack: [u8; 0xffff],
     a: u8,
@@ -25,9 +24,9 @@ struct Processor {
     y: u8,
     pc: u16,
     sp: u16,
-    sr: u8
+    sr: u8,
 }
-
+#[allow(dead_code)]
 impl Processor {
     // Create a new 6502 Processor
     pub fn new() -> Self {
@@ -38,19 +37,48 @@ impl Processor {
             y: 0,
             pc: 0xfce2, // Hardcode program counter to 0xfec2
             sp: 0x01fd, // Hardcode Stack pointer to 0x01fd
-            sr: 0b11111111
+            sr: 0b11111111,
         }
     }
 
     // STACK OPERATIONS
-    pub fn read_byte(&self, address: u16) -> Option<&u8> {
-        self.stack.get(address as usize)
+    pub fn read_byte(&self, address: u16) -> Option<u8> {
+        Some(self.stack.get(address as usize)?.to_owned())
     }
 
     pub fn write_byte(&mut self, address: u16, data: u8) {
-        self.stack[address as usize] = data;
+        self.stack[address as usize] = data.to_le_bytes()[0];
     }
 
-    
+    pub fn read_word(&self, address: u16) -> Option<u16> {
+        Some((self.read_byte(address + 1)? as u16) << 8 | self.read_byte(address)? as u16)
+    }
 
+    pub fn write_word(&mut self, address: u16, data: u16) {
+        data.to_le_bytes()
+            .iter()
+            .enumerate()
+            .map(|(i, d)| self.write_byte(address + i as u16, *d))
+            .count();
+    }
+}
+
+mod test {
+    use crate::processor::Processor;
+
+    #[test]
+    pub fn write_and_write_byte() {
+        let mut processor = Processor::new();
+
+        processor.write_byte(0xff2f, 0x33);
+        assert_eq!(processor.read_byte(0xff2f), Some(0x33));
+    }
+
+    #[test]
+    pub fn write_and_read_word() {
+        let mut processor = Processor::new();
+
+        processor.write_word(0xff2f, 0xf6e4);
+        assert_eq!(processor.read_word(0xff2f), Some(0xf6e4));
+    }
 }
