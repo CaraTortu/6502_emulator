@@ -54,7 +54,12 @@ impl Processor {
     }
 
     // STACK OPERATIONS
-    pub fn read_byte(&self, address: u16) -> Option<u8> {
+    pub fn read_byte(&mut self) -> Option<u8> {
+        self.pc += 1;
+        Some(self.ram.get(self.pc as usize - 1)?.to_owned())
+    }
+
+    pub fn read_byte_at_address(&self, address: u16) -> Option<u8> {
         Some(self.ram.get(address as usize)?.to_owned())
     }
 
@@ -62,8 +67,15 @@ impl Processor {
         self.ram[address as usize] = data.to_le_bytes()[0];
     }
 
-    pub fn read_word(&self, address: u16) -> Option<u16> {
-        Some((self.read_byte(address + 1)? as u16) << 8 | self.read_byte(address)? as u16)
+    pub fn read_word(&mut self) -> Option<u16> {
+        Some(self.read_byte()? as u16 | (self.read_byte()? as u16) << 8)
+    }
+
+    pub fn read_word_at_address(&mut self, address: u16) -> Option<u16> {
+        Some(
+            self.read_byte_at_address(address)? as u16
+                | (self.read_byte_at_address(address + 1)? as u16) << 8,
+        )
     }
 
     pub fn write_word(&mut self, address: u16, data: u16) {
@@ -94,64 +106,96 @@ impl Processor {
         let mut cycles: u64 = 0;
 
         while cycles < cycle_limit {
-            let instruction = self.read_byte(self.pc).unwrap();
+            let instruction = self.read_byte().unwrap();
             let param_count = OPCodes::param_count(instruction);
 
             let parameter: Option<isize> = match param_count {
                 0 => None,
-                1 => Some(self.read_byte(self.pc + 1).unwrap() as isize),
-                _ => Some(self.read_word(self.pc + 1).unwrap() as isize)
+                1 => Some(self.read_byte().unwrap() as isize),
+                _ => Some(self.read_word().unwrap() as isize),
             };
-
-            // Increase the program counter by the amount of bytes read
-            self.pc += param_count + 1;
 
             // Get the OPcode related to the hex code
             let opcode = OPCodes::instruction_to_opcode(instruction, parameter);
-
-            // Increase the amount of cycles we have gone through
-            cycles += self.handle_opcode(&opcode);
 
             // Return of the program means we finished. Break out of loop.
             if opcode == OPCodes::RTS {
                 break;
             }
+
+            // Increase the amount of cycles we have gone through
+            cycles += self.handle_opcode(opcode);
         }
     }
 
-    pub fn handle_opcode(&mut self, instruction: &OPCodes) -> u64 {
+    pub fn handle_opcode(&mut self, instruction: OPCodes) -> u64 {
         use OPCodes::*;
 
         match instruction {
             // Set the CARRY flag
             SEC => self.sr |= 0b0000_0001,
+            // Set the INTERRUPT DISABLE flag
+            SEI => self.sr |= 0b0000_0100,
+            // Set DECIMAL MODE flag
+            SED => self.sr |= 0b0000_1000,
             // Clear the CARRY flag
             CLC => self.sr &= 0b1111_1110,
             // Clear the OVERFLOW flag
             CLV => self.sr &= 0b1011_1111,
-            // Set the INTERRUPT DISABLE flag
-            SEI => self.sr |= 0b0000_0100,
             // Clear the INTERRUPT DISABLE flag
             CLI => self.sr &= 0b1111_1011,
-            // Set DECIMAL MODE flag
-            SED => self.sr |= 0b0000_1000,
             // Clear the DECIMAL MODE flag
             CLD => self.sr &= 0b1111_0111,
 
-            // Handle LDA cases
+            // Handle LDA cases. Will later be unabstracted for the sake of performance. Currently
+            // abstracted for debug purposes.
             LDA_ABS(_) | LDA_ZPG(_) | LDA_XABS(_) | LDA_XIND(_) | LDA_XZPG(_) | LDA_YABS(_)
             | LDA_YIND(_) | LDA_IMM(_) => self.handle_lda(instruction),
 
             // Other shit todo
             _ => (),
-        }
+        };
 
-        println!("{:?}", instruction);
         return 1;
     }
 
-    fn handle_lda(&mut self, _instruction: &OPCodes) {
-        todo!()
+    fn handle_lda(&mut self, instruction: OPCodes) {
+        use OPCodes::*;
+
+        match instruction {
+            LDA_IMM(value) => self.a = value,
+
+            // Handle absolute values.
+            LDA_ABS(value) => self.a = self.read_byte_at_address(value).unwrap(),
+            LDA_XABS(value) => self.a = self.read_byte_at_address(value + self.x as u16).unwrap(),
+            LDA_YABS(value) => self.a = self.read_byte_at_address(value + self.y as u16).unwrap(),
+
+            // The two lines below are operated by 0xff.
+            // This is to prevent the address addition to go past the zero page address since we
+            // only apply the sum to the LSB.
+            LDA_ZPG(value) => self.a = self.read_byte_at_address(value as u16 % 0xff).unwrap(),
+            LDA_XZPG(value) => {
+                self.a = self
+                    .read_byte_at_address((value + self.x) as u16 % 0xff)
+                    .unwrap()
+            }
+
+            // Handle indirect values.
+            LDA_XIND(value) => {
+                let address: u16 = self
+                    .read_word_at_address(value as u16 + self.x as u16)
+                    .unwrap();
+                self.a = self.read_byte_at_address(address).unwrap()
+            }
+            LDA_YIND(value) => {
+                let address: u16 = self.read_word_at_address(value as u16).unwrap();
+                self.a = self.read_byte_at_address(address + self.y as u16).unwrap()
+            }
+
+            // If we got here is because the universe made a bit flip an magically changed the
+            // value at this specific time to some other complete nonesense. Oddly specific?
+            _ => unreachable!(),
+        }
     }
 }
 
@@ -162,16 +206,39 @@ mod test {
     #[test]
     pub fn write_and_write_byte() {
         let mut processor = Processor::new();
-
+        processor.pc = 0xff2f;
         processor.write_byte(0xff2f, 0x33);
-        assert_eq!(processor.read_byte(0xff2f), Some(0x33));
+        assert_eq!(processor.read_byte(), Some(0x33));
     }
 
     #[test]
     pub fn write_and_read_word() {
         let mut processor = Processor::new();
 
+        processor.pc = 0xff2f;
         processor.write_word(0xff2f, 0xf6e4);
-        assert_eq!(processor.read_word(0xff2f), Some(0xf6e4));
+        assert_eq!(processor.read_word(), Some(0xf6e4));
+    }
+
+    #[test]
+    pub fn test_lda() {
+        let mut processor = Processor::new();
+        // Start executing at 0x200
+        processor.pc = 0x0200;
+
+        // Write the value 0x30 into ff2f
+        processor.write_byte(0xff2f, 0x30);
+        
+        // Write LDA_ABS instruction
+        processor.write_byte(0x0200, 0xad);
+        processor.write_word(0x0201, 0xff2f);
+        processor.write_byte(0x0203, 0x60);
+        
+        // Execute
+        const MAX_CYCLES: u64 = 0xffff;
+        processor.execute(MAX_CYCLES);
+
+        // Check A
+        assert_eq!(processor.a, 0x30);
     }
 }
