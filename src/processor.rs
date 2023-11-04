@@ -95,25 +95,16 @@ impl Processor {
 
         while cycles < cycle_limit {
             let instruction = self.read_byte(self.pc).unwrap();
-            let difference: u16;
+            let param_count = OPCodes::param_count(instruction);
 
-            let parameter: Option<isize> = match OPCodes::param_count(instruction) {
-                0 => {
-                    difference = 1;
-                    None
-                }
-                1 => {
-                    difference = 2;
-                    Some(self.read_byte(self.pc + 1).unwrap() as isize)
-                }
-                _ => {
-                    difference = 3;
-                    Some(self.read_word(self.pc + 1).unwrap() as isize)
-                }
+            let parameter: Option<isize> = match param_count {
+                0 => None,
+                1 => Some(self.read_byte(self.pc + 1).unwrap() as isize),
+                _ => Some(self.read_word(self.pc + 1).unwrap() as isize)
             };
 
             // Increase the program counter by the amount of bytes read
-            self.pc += difference;
+            self.pc += param_count + 1;
 
             // Get the OPcode related to the hex code
             let opcode = OPCodes::instruction_to_opcode(instruction, parameter);

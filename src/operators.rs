@@ -349,7 +349,7 @@ impl OPCodes {
     }
 
     // Returns the amount of bytes that it will read after the instruction
-    pub fn param_count(opcode: u8) -> usize {
+    pub fn param_count(opcode: u8) -> u16 {
         match opcode {
             // Zero length parameters
             0x00 | 0x08 | 0x0a | 0x18 | 0x28 | 0x2a | 0x38 | 0x40 | 0x48 | 0x4a | 0x58 | 0x60
