@@ -223,16 +223,12 @@ mod test {
     #[test]
     pub fn test_lda() {
         let mut processor = Processor::new();
-        // Start executing at 0x200
-        processor.pc = 0x0200;
 
         // Write the value 0x30 into ff2f
         processor.write_byte(0xff2f, 0x30);
-        
-        // Write LDA_ABS instruction
-        processor.write_byte(0x0200, 0xad);
-        processor.write_word(0x0201, 0xff2f);
-        processor.write_byte(0x0203, 0x60);
+
+        // Write the program
+        processor.write_program(&vec![0xad, 0x2f, 0xff, 0x60]);
         
         // Execute
         const MAX_CYCLES: u64 = 0xffff;
