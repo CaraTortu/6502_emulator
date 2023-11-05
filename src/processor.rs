@@ -1,4 +1,4 @@
-use crate::operators::OPCodes;
+use crate::operators::OPCodes::{self, *};
 
 // Processor based on the 6502
 // Components:
@@ -129,15 +129,18 @@ impl Processor {
     }
 
     pub fn handle_opcode(&mut self, instruction: OPCodes) -> u64 {
-        use OPCodes::*;
-
         match instruction {
+            ///////////////////////////////////// Flag setters ///////////////////////////////////////
+
             // Set the CARRY flag
             SEC => self.sr |= 0b0000_0001,
             // Set the INTERRUPT DISABLE flag
             SEI => self.sr |= 0b0000_0100,
             // Set DECIMAL MODE flag
             SED => self.sr |= 0b0000_1000,
+
+            ///////////////////////////////////// Flag clearers //////////////////////////////////////
+
             // Clear the CARRY flag
             CLC => self.sr &= 0b1111_1110,
             // Clear the OVERFLOW flag
@@ -147,40 +150,18 @@ impl Processor {
             // Clear the DECIMAL MODE flag
             CLD => self.sr &= 0b1111_0111,
 
-            // Handle LDA cases. Will later be unabstracted for the sake of performance. Currently
-            // abstracted for debug purposes.
-            LDA_ABS(_) | LDA_ZPG(_) | LDA_XABS(_) | LDA_XIND(_) | LDA_XZPG(_) | LDA_YABS(_)
-            | LDA_YIND(_) | LDA_IMM(_) => self.handle_lda(instruction),
-
-            // Other shit todo
-            _ => (),
-        };
-
-        return 1;
-    }
-
-    fn handle_lda(&mut self, instruction: OPCodes) {
-        use OPCodes::*;
-
-        match instruction {
+            ////////////////////////////////// Handle LDA cases /////////////////////////////////////
+            
             LDA_IMM(value) => self.a = value,
-
-            // Handle absolute values.
             LDA_ABS(value) => self.a = self.read_byte_at_address(value).unwrap(),
             LDA_XABS(value) => self.a = self.read_byte_at_address(value + self.x as u16).unwrap(),
             LDA_YABS(value) => self.a = self.read_byte_at_address(value + self.y as u16).unwrap(),
-
-            // The two lines below are operated by 0xff.
-            // This is to prevent the address addition to go past the zero page address since we
-            // only apply the sum to the LSB.
             LDA_ZPG(value) => self.a = self.read_byte_at_address(value as u16 % 0xff).unwrap(),
             LDA_XZPG(value) => {
                 self.a = self
                     .read_byte_at_address((value + self.x) as u16 % 0xff)
                     .unwrap()
             }
-
-            // Handle indirect values.
             LDA_XIND(value) => {
                 let address: u16 = self
                     .read_word_at_address(value as u16 + self.x as u16)
@@ -192,10 +173,35 @@ impl Processor {
                 self.a = self.read_byte_at_address(address + self.y as u16).unwrap()
             }
 
-            // If we got here is because the universe made a bit flip an magically changed the
-            // value at this specific time to some other complete nonesense. Oddly specific?
-            _ => unreachable!(),
-        }
+            ////////////////////////////////// Handle LDX cases /////////////////////////////////////
+            
+            LDX_IMM(value) => self.x = value,
+            LDX_ABS(value) => self.x = self.read_byte_at_address(value).unwrap(),
+            LDX_YABS(value) => self.x = self.read_byte_at_address(value + self.y as u16).unwrap(),
+            LDX_ZPG(value) => self.x = self.read_byte_at_address(value as u16).unwrap(),
+            LDX_YZPG(value) => {
+                self.x = self
+                    .read_byte_at_address(value as u16 + self.y as u16)
+                    .unwrap()
+            }
+
+            ////////////////////////////////// Handle LDY cases /////////////////////////////////////
+            
+            LDY_IMM(value) => self.y = value,
+            LDY_ABS(value) => self.y = self.read_byte_at_address(value).unwrap(),
+            LDY_XABS(value) => self.y = self.read_byte_at_address(value + self.x as u16).unwrap(),
+            LDY_ZPG(value) => self.y = self.read_byte_at_address(value as u16).unwrap(),
+            LDY_XZPG(value) => {
+                self.y = self
+                    .read_byte_at_address(value as u16 + self.x as u16)
+                    .unwrap()
+            }
+
+            // Other shit todo
+            _ => _ = dbg!(instruction),
+        };
+
+        return 1;
     }
 }
 
@@ -229,7 +235,7 @@ mod test {
 
         // Write the program
         processor.write_program(&vec![0xad, 0x2f, 0xff, 0x60]);
-        
+
         // Execute
         const MAX_CYCLES: u64 = 0xffff;
         processor.execute(MAX_CYCLES);
