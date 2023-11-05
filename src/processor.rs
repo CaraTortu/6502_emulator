@@ -29,7 +29,7 @@ pub struct Processor {
     x: u8,
     y: u8,
     pc: u16,
-    sp: u16,
+    sp: u8,
     sr: u8,
 }
 
@@ -48,7 +48,7 @@ impl Processor {
 
             // Hardcode Stack pointer to 0x0100
             // (Stack address space is from 0x0100 to 0x01ff.
-            sp: 0x0100,
+            sp: 0x00,
             sr: 0b11111111,
         }
     }
@@ -128,80 +128,288 @@ impl Processor {
         }
     }
 
+    fn zero_flag(&mut self, value: u8) {
+        if value == 0 { self.sr |= 0b0000_0010; }
+    }
+
+    fn negative_flag(&mut self, value: u8) {
+        self.sr |= value & 0b1000_0000;
+    }
+
     pub fn handle_opcode(&mut self, instruction: OPCodes) -> u64 {
+        // TODO: Update processor flags.
+
+        const TWO_CYCLE: u64 = 2;
+        const THREE_CYCLE: u64 = 3;
+        const FOUR_CYCLE: u64 = 4;
+        const FIVE_CYCLE: u64 = 5;
+        const SIX_CYCLE: u64 = 6;
+
         match instruction {
             ///////////////////////////////////// Flag setters ///////////////////////////////////////
 
             // Set the CARRY flag
-            SEC => self.sr |= 0b0000_0001,
+            SEC => {
+                self.sr |= 0b0000_0001;
+                return TWO_CYCLE;
+            }
             // Set the INTERRUPT DISABLE flag
-            SEI => self.sr |= 0b0000_0100,
+            SEI => {
+                self.sr |= 0b0000_0100;
+                return TWO_CYCLE;
+            }
             // Set DECIMAL MODE flag
-            SED => self.sr |= 0b0000_1000,
+            SED => {
+                self.sr |= 0b0000_1000;
+                return TWO_CYCLE;
+            }
 
             ///////////////////////////////////// Flag clearers //////////////////////////////////////
 
             // Clear the CARRY flag
-            CLC => self.sr &= 0b1111_1110,
+            CLC => {
+                self.sr &= 0b1111_1110;
+                return TWO_CYCLE;
+            }
             // Clear the OVERFLOW flag
-            CLV => self.sr &= 0b1011_1111,
+            CLV => {
+                self.sr &= 0b1011_1111;
+                return TWO_CYCLE;
+            }
             // Clear the INTERRUPT DISABLE flag
-            CLI => self.sr &= 0b1111_1011,
+            CLI => {
+                self.sr &= 0b1111_1011;
+                return TWO_CYCLE;
+            }
             // Clear the DECIMAL MODE flag
-            CLD => self.sr &= 0b1111_0111,
+            CLD => {
+                self.sr &= 0b1111_0111;
+                return TWO_CYCLE;
+            }
 
             ////////////////////////////////// Handle LDA cases /////////////////////////////////////
-            
-            LDA_IMM(value) => self.a = value,
-            LDA_ABS(value) => self.a = self.read_byte_at_address(value).unwrap(),
-            LDA_XABS(value) => self.a = self.read_byte_at_address(value + self.x as u16).unwrap(),
-            LDA_YABS(value) => self.a = self.read_byte_at_address(value + self.y as u16).unwrap(),
-            LDA_ZPG(value) => self.a = self.read_byte_at_address(value as u16 % 0xff).unwrap(),
+            LDA_IMM(value) => {
+                self.a = value;
+                self.zero_flag(value);
+                self.negative_flag(value);
+                return TWO_CYCLE;
+            }
+            LDA_ABS(value) => {
+                self.handle_opcode(LDA_IMM(self.read_byte_at_address(value).unwrap()));
+                return FOUR_CYCLE;
+            }
+            LDA_XABS(value) => {
+                self.handle_opcode(LDA_IMM(
+                    self.read_byte_at_address(value + self.x as u16).unwrap(),
+                ));
+                return FOUR_CYCLE;
+            }
+            LDA_YABS(value) => {
+                self.handle_opcode(LDA_IMM(
+                    self.read_byte_at_address(value + self.y as u16).unwrap(),
+                ));
+                return FOUR_CYCLE;
+            }
+            LDA_ZPG(value) => {
+                self.handle_opcode(LDA_IMM(
+                    self.read_byte_at_address(value as u16 % 0xff).unwrap(),
+                ));
+                return THREE_CYCLE;
+            }
             LDA_XZPG(value) => {
-                self.a = self
-                    .read_byte_at_address((value + self.x) as u16 % 0xff)
-                    .unwrap()
+                self.handle_opcode(LDA_IMM(
+                    self.read_byte_at_address((value + self.x) as u16 % 0xff)
+                        .unwrap(),
+                ));
+                return FOUR_CYCLE;
             }
             LDA_XIND(value) => {
                 let address: u16 = self
                     .read_word_at_address(value as u16 + self.x as u16)
                     .unwrap();
-                self.a = self.read_byte_at_address(address).unwrap()
+                self.handle_opcode(LDA_IMM(self.read_byte_at_address(address).unwrap()));
+                return SIX_CYCLE;
             }
             LDA_YIND(value) => {
                 let address: u16 = self.read_word_at_address(value as u16).unwrap();
-                self.a = self.read_byte_at_address(address + self.y as u16).unwrap()
+                self.handle_opcode(LDA_IMM(
+                    self.read_byte_at_address(address + self.y as u16).unwrap(),
+                ));
+                return FIVE_CYCLE;
             }
 
             ////////////////////////////////// Handle LDX cases /////////////////////////////////////
-            
-            LDX_IMM(value) => self.x = value,
-            LDX_ABS(value) => self.x = self.read_byte_at_address(value).unwrap(),
-            LDX_YABS(value) => self.x = self.read_byte_at_address(value + self.y as u16).unwrap(),
-            LDX_ZPG(value) => self.x = self.read_byte_at_address(value as u16).unwrap(),
+            LDX_IMM(value) => {
+                self.x = value;
+                self.zero_flag(value);
+                self.negative_flag(value); 
+                return TWO_CYCLE;
+            }
+            LDX_ABS(value) => {
+                self.handle_opcode(LDX_IMM(self.read_byte_at_address(value).unwrap()));
+                return FOUR_CYCLE;
+            }
+            LDX_YABS(value) => {
+                self.handle_opcode(LDX_IMM(
+                    self.read_byte_at_address(value + self.y as u16).unwrap(),
+                ));
+                return FOUR_CYCLE;
+            }
+            LDX_ZPG(value) => {
+                self.handle_opcode(LDX_IMM(self.read_byte_at_address(value as u16).unwrap()));
+                return THREE_CYCLE;
+            }
             LDX_YZPG(value) => {
-                self.x = self
-                    .read_byte_at_address(value as u16 + self.y as u16)
-                    .unwrap()
+                self.handle_opcode(LDX_IMM(
+                    self.read_byte_at_address(value as u16 + self.y as u16)
+                        .unwrap(),
+                ));
+                return FOUR_CYCLE;
             }
 
             ////////////////////////////////// Handle LDY cases /////////////////////////////////////
-            
-            LDY_IMM(value) => self.y = value,
-            LDY_ABS(value) => self.y = self.read_byte_at_address(value).unwrap(),
-            LDY_XABS(value) => self.y = self.read_byte_at_address(value + self.x as u16).unwrap(),
-            LDY_ZPG(value) => self.y = self.read_byte_at_address(value as u16).unwrap(),
+            LDY_IMM(value) => {
+                self.y = value;
+                self.zero_flag(value);
+                self.negative_flag(value);
+                return TWO_CYCLE;
+            }
+            LDY_ABS(value) => {
+                self.handle_opcode(LDY_IMM(self.read_byte_at_address(value).unwrap()));
+                return FOUR_CYCLE;
+            }
+            LDY_XABS(value) => {
+                self.handle_opcode(LDY_IMM(
+                    self.read_byte_at_address(value + self.x as u16).unwrap(),
+                ));
+                return FOUR_CYCLE;
+            }
+            LDY_ZPG(value) => {
+                self.handle_opcode(LDY_IMM(self.read_byte_at_address(value as u16).unwrap()));
+                return THREE_CYCLE;
+            }
             LDY_XZPG(value) => {
-                self.y = self
-                    .read_byte_at_address(value as u16 + self.x as u16)
-                    .unwrap()
+                self.handle_opcode(LDY_IMM(
+                    self.read_byte_at_address(value as u16 + self.x as u16)
+                        .unwrap(),
+                ));
+                return FOUR_CYCLE;
+            }
+
+            ////////////////////////////////// Handle STA cases /////////////////////////////////////
+            STA_ABS(value) => {
+                self.write_byte(value, self.a);
+                return FOUR_CYCLE;
+            }
+            STA_XABS(value) => {
+                self.write_byte(value + self.x as u16, self.a);
+                return FOUR_CYCLE;
+            }
+            STA_YABS(value) => {
+                self.write_byte(value + self.y as u16, self.a);
+                return FOUR_CYCLE;
+            }
+            STA_ZPG(value) => {
+                self.write_byte(value as u16, self.a);
+                return THREE_CYCLE;
+            }
+            STA_XZPG(value) => {
+                self.write_byte(value as u16 + self.x as u16, self.a);
+                return FOUR_CYCLE;
+            }
+            STA_XIND(value) => {
+                let addr = self
+                    .read_word_at_address(value as u16 + self.x as u16)
+                    .unwrap();
+                self.write_byte(addr, self.a);
+                return SIX_CYCLE;
+            }
+            STA_YIND(value) => {
+                let addr = self.read_word_at_address(value as u16).unwrap();
+                self.write_byte(addr + self.y as u16, self.a);
+                return FIVE_CYCLE;
+            }
+
+            ////////////////////////////////// Handle STX cases /////////////////////////////////////
+            
+            STX_ABS(value) => {
+                self.write_byte(value, self.x);
+                return THREE_CYCLE;
+            }
+            STX_ZPG(value) => {
+                self.write_byte(value as u16, self.x);
+                return THREE_CYCLE;
+            }
+            STX_YZPG(value) => {
+                self.write_byte(value as u16 + self.y as u16, self.x);
+                return FOUR_CYCLE;
+            }
+
+            ////////////////////////////////// Handle STY cases /////////////////////////////////////
+            
+            STY_ABS(value) => {
+                self.write_byte(value, self.y);
+                return THREE_CYCLE;
+            }
+            STY_ZPG(value) => {
+                self.write_byte(value as u16, self.y);
+                return THREE_CYCLE;
+            }
+            STY_XZPG(value) => {
+                self.write_byte(value as u16 + self.x as u16, self.y);
+                return FOUR_CYCLE;
+            }
+
+            
+            ////////////////////////////// Handle Transfer cases ////////////////////////////////////
+    
+            TAX => {
+                self.x = self.a;
+                self.zero_flag(self.x);
+                self.negative_flag(self.x);
+                return TWO_CYCLE;
+            }
+            TAY => {
+                self.y = self.a;
+                self.zero_flag(self.y);
+                self.negative_flag(self.y);
+                return TWO_CYCLE;
+            }
+
+           TXA => {
+                self.a = self.x;
+                self.zero_flag(self.a);
+                self.negative_flag(self.a);
+                return TWO_CYCLE;
+            }
+
+           TYA => {
+                self.a = self.y;
+                self.zero_flag(self.a);
+                self.negative_flag(self.a);
+                return TWO_CYCLE;
+            }
+
+           TXS => {
+                self.sp = self.x;
+                self.zero_flag(self.sp);
+                self.negative_flag(self.sp);
+                return TWO_CYCLE;
+            }
+
+           TSX => {
+                self.x = self.sp;
+                self.zero_flag(self.x);
+                self.negative_flag(self.x);
+                return TWO_CYCLE;
             }
 
             // Other shit todo
-            _ => _ = dbg!(instruction),
-        };
-
-        return 1;
+            _ => {
+                dbg!(instruction);
+                return 0;
+            }
+        }
     }
 }
 
